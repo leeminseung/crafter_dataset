@@ -33,7 +33,7 @@ class Env(BaseClass):
         reward=True,
         length=10000,
         seed=None,
-        global_view_type='notgiven' # {notgiven|fullview|visited}
+        subtask=None,
     ):
         view = np.array(view if hasattr(view, "__len__") else (view, view))
         size = np.array(size if hasattr(size, "__len__") else (size, size))
@@ -47,22 +47,17 @@ class Env(BaseClass):
         - 4: health, die, enemy (original)
         """
         self.level = level
-        self._global_view_type = global_view_type
         self._area = area
         self._view = view
         self._size = size
         self._reward = reward
         self._length = length
         self._seed = seed
+        self._subtask = subtask
         self._episode = 0
         self._world = engine.World(level, area, constants.materials, (12, 12))
         self._textures = engine.Textures(constants.root / "assets")
         item_rows = int(np.ceil(len(constants.items) / view[0]))
-        if global_view_type != 'notgiven':
-            self._global_view = engine.GlobalView(
-                self._world, self._textures, [view[0], view[1] - item_rows],
-                view_type=global_view_type
-            )
         self._local_view = engine.LocalView(
             self._world, self._textures, [view[0], view[1] - item_rows]
         )
@@ -88,18 +83,7 @@ class Env(BaseClass):
 
     @property
     def observation_space(self):
-        if self._global_view_type == 'notgiven':
-            return BoxSpace(0, 255, tuple(self._size) + (3,), np.uint8)
-        else:
-            return BoxSpace(0, 255, tuple(self._size) + (5,), np.uint8)
-
-    @property
-    def local_view_space(self):
         return BoxSpace(0, 255, tuple(self._size) + (3,), np.uint8)
-
-    @property
-    def global_view_space(self):
-        return BoxSpace(0, 255, tuple(self._size) + (2,), np.uint8)
 
     @property
     def action_space(self):
@@ -110,26 +94,67 @@ class Env(BaseClass):
         return constants.actions
 
     def reset(self):
+        # TODO: random init agent health state, random init time, figure out why not spawning in the middle of stones
+        random_init_task = ["collect_stone", "collect_coal", "collect_iron", "collect_diamond", "make_wood_pickaxe", "make_stone_pickaxe", "make_iron_pickaxe"]
         center = (self._world.area[0] // 2, self._world.area[1] // 2)
+        if self._subtask in random_init_task:
+            init_pos = (np.random.randint(self._world.area[0]), np.random.randint(self._world.area[1]))
+        else:
+            init_pos = center
+
         self._episode += 1
         self._step = 0
         self._world.reset(seed=hash((self._seed, self._episode)) % (2 ** 31 - 1))
         self._update_time()
-        self._player = objects.Player(self._world, center)
+        self._player = objects.Player(self._world, init_pos)
         self._last_health = self._player.health
         self._world.add(self._player)
         self._unlocked = set()
+
+        if self._subtask == "collect_coal":
+            self._player.inventory['wood_pickaxe'] = 1
+
+        elif self._subtask == "collect_stone":
+            self._player.inventory['wood_pickaxe'] = 1
+
+        elif self._subtask == "collect_iron":
+            self._player.inventory['wood_pickaxe'] = 1
+            self._player.inventory['stone_pickaxe'] = 1
+        
+        elif self._subtask == "collect_diamond":
+            self._player.inventory['wood_pickaxe'] = 1
+            self._player.inventory['stone_pickaxe'] = 1
+            self._player.inventory['iron_pickaxe'] = 1
+
+        elif self._subtask == "make_wood_pickaxe":
+            self._player.inventory['wood'] = np.random.randint(3, 10)
+
+        elif self._subtask == "make_stone_pickaxe":
+            self._player.inventory['wood_pickaxe'] = 1
+            self._player.inventory['wood'] = np.random.randint(3, 10)
+            self._player.inventory['stone'] = np.random.randint(1, 10)
+        
+        elif self._subtask == "make_iron_pickaxe":
+            self._player.inventory['wood_pickaxe'] = 1
+            self._player.inventory['stone_pickaxe'] = 1
+            self._player.inventory['wood'] = np.random.randint(3, 10)
+            self._player.inventory['stone'] = np.random.randint(4, 10)
+            self._player.inventory['coal'] = np.random.randint(1, 8)
+            self._player.inventory['iron'] = np.random.randint(1, 5)
+
+        self._last_inventory = self._player.inventory.copy()
         worldgen.generate_world(self._world, self._player)
 
-        info = {
-            "inventory": self._player.inventory.copy(),
-            "achievements": self._player.achievements.copy(),
-            "discount": 1,
-            "semantic": self._sem_view(),
-            "player_pos": self._player.pos,
-            "reward": 0,
-        }
-        return self._obs(), info
+        # info = {
+        #     "inventory": self._player.inventory.copy(),
+        #     "achievements": self._player.achievements.copy(),
+        #     "discount": 1,
+        #     "semantic": self._sem_view(),
+        #     "player_pos": self._player.pos,
+        #     "reward": 0,
+        # }
+        return self._obs()
+        # return self._obs(), info
 
     def step(self, action):
         self._step += 1
@@ -155,11 +180,50 @@ class Env(BaseClass):
             for name, count in self._player.achievements.items()
             if count > 0 and name not in self._unlocked
         }
-        if unlocked:
+        if self._subtask == "collect_wood":
+            if self._player.inventory['wood'] - self._last_inventory['wood'] > 0:
+                reward += 1.0
+                
+        elif self._subtask == "collect_stone":
+            if self._player.inventory['stone'] - self._last_inventory['stone'] > 0:
+                reward += 1.0
+
+        elif self._subtask == "collect_coal":
+            if self._player.inventory['coal'] - self._last_inventory['coal'] > 0:
+                reward += 1.0
+
+        elif self._subtask == "make_wood_pickaxe":
+            if self._player.inventory['wood_pickaxe'] - self._last_inventory['wood_pickaxe'] > 0:
+                reward += 1.0
+
+        elif self._subtask == "make_stone_pickaxe":
+            if self._player.inventory['stone_pickaxe'] - self._last_inventory['stone_pickaxe'] > 0:
+                reward += 1.0
+
+        elif self._subtask == "make_iron_pickaxe":
+            if self._player.inventory['iron_pickaxe'] - self._last_inventory['iron_pickaxe'] > 0:
+                reward += 1.0
+
+        elif unlocked:
             self._unlocked |= unlocked
             reward += 1.0
+
+        self._last_inventory = self._player.inventory.copy()
+
         dead = self._player.health <= 0
         over = self._length and self._step >= self._length
+        if self._subtask == "make_wood_pickaxe":
+            if self._player.inventory["wood_pickaxe"]:
+                over = True
+        
+        elif self._subtask == "make_stone_pickaxe":
+            if self._player.inventory["stone_pickaxe"]:
+                over = True
+
+        elif self._subtask == "make_iron_pickaxe":
+            if self._player.inventory["iron_pickaxe"]:
+                over = True
+
         if self.level in [1, 2]:
             done = over
         else:
@@ -186,12 +250,7 @@ class Env(BaseClass):
         border = (size - (size // self._view) * self._view) // 2
         (x, y), (w, h) = border, view.shape[:2]
         canvas[x : x + w, y : y + h] = view
-        canvas = canvas.transpose((1, 0, 2))
-        if self._global_view_type != 'notgiven':
-            global_view = np.array(self._global_view(self._player), np.uint8)
-            global_view.transpose((1, 0, 2))
-            canvas = np.concatenate([canvas, global_view], axis=-1)
-        return canvas
+        return canvas.transpose((1, 0, 2))
 
     def _obs(self):
         return self.render()

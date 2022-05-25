@@ -10,6 +10,7 @@ except ImportError:
 from PIL import Image
 
 import crafter
+import time
 
 
 def main():
@@ -18,14 +19,15 @@ def main():
     parser.add_argument("--seed", type=int, default=None)
     parser.add_argument("--area", nargs=2, type=int, default=(64, 64))
     parser.add_argument("--view", type=int, nargs=2, default=(9, 9))
-    parser.add_argument("--length", type=int, default=None)
-    parser.add_argument("--level", type=int, default=6)
+    parser.add_argument("--length", type=int, default=1000)
+    parser.add_argument("--level", type=int, default=3)
     parser.add_argument("--health", type=int, default=9)
     parser.add_argument("--window", type=int, nargs=2, default=(600, 600))
     parser.add_argument("--size", type=int, nargs=2, default=(0, 0))
     parser.add_argument("--record", type=str, default=None)
     parser.add_argument("--fps", type=int, default=5)
-    parser.add_argument("--wait", type=boolean, default=False)
+    parser.add_argument("--wait", type=boolean, default=True)
+    parser.add_argument("--subtask", type=str, default="collect_wood", choices=['collect_wood', 'collect_stone', 'collect_coal', 'collect_iron', 'collect_diamond', 'make_wood_pickaxe', 'make_stone_pickaxe', 'make_iron_pickaxe'])
     parser.add_argument(
         "--death", type=str, default="reset", choices=["continue", "reset", "quit"]
     )
@@ -66,6 +68,7 @@ def main():
         view=args.view,
         length=args.length,
         seed=args.seed,
+        subtask=args.subtask
     )
     env = crafter.Recorder(env, args.record)
     env.reset()
@@ -79,8 +82,8 @@ def main():
     screen = pygame.display.set_mode(args.window)
     clock = pygame.time.Clock()
     running = True
+    start_time = time.time()
     while running:
-
         # Rendering.
         image = env.render(size)
         if size != args.window:
@@ -138,6 +141,7 @@ def main():
             was_done = True
             print("Episode done!")
             print("Duration:", duration)
+            print("Time:", time.time() - start_time)
             print("Return:", return_)
             if args.death == "quit":
                 running = False
