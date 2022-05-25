@@ -14,9 +14,26 @@ cd dreamverv2
 pip install -e .
 ```
 
+train
+```sh
+python dreamerv2_train.py
+```
+
+Evaluate trained agent and record as videos.
+```sh
+python evaluator.py
+```
+
+
 ## PPO
 ```sh
 pip install stable-baselines3
 ```
+and need to install other trivial dependency. (I did not track these...)
 
-and need to install other trivial dependency.
+train
+```sh
+python ppo_train.py
+```
+
+Evaluate trained agent and record as videos : not implemented yet.
