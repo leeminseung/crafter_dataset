@@ -7,22 +7,26 @@ from . import constants
 from . import objects
 
 
-def generate_world(world, player):
+def generate_world(world, player, player_init_pose=None):
     simplex = opensimplex.OpenSimplex(seed=world.random.randint(0, 2 ** 31 - 1))
     tunnels = np.zeros(world.area, np.bool)
+    if player_init_pose:
+        player_pos = player_init_pose
+    else:
+        player_pos = player.pos
     for x in range(world.area[0]):
         for y in range(world.area[1]):
-            _set_material(world, (x, y), player, tunnels, simplex)
+            _set_material(world, (x, y), player_pos, tunnels, simplex)
     for x in range(world.area[0]):
         for y in range(world.area[1]):
-            _set_object(world, (x, y), player, tunnels)
+            _set_object(world, (x, y), player_pos, tunnels)
 
 
-def _set_material(world, pos, player, tunnels, simplex):
+def _set_material(world, pos, player_pos, tunnels, simplex):
     x, y = pos
     simplex = functools.partial(_simplex, simplex)
     uniform = world.random.uniform
-    start = 4 - np.sqrt((x - player.pos[0]) ** 2 + (y - player.pos[1]) ** 2)
+    start = 4 - np.sqrt((x - player_pos[0]) ** 2 + (y - player_pos[1]) ** 2)
     start += 2 * simplex(x, y, 8, 3)
     start = 1 / (1 + np.exp(-start))
     water = simplex(x, y, 3, {15: 1, 5: 0.15}, False) + 0.1
@@ -66,10 +70,10 @@ def _set_material(world, pos, player, tunnels, simplex):
             world[x, y] = "grass"
 
 
-def _set_object(world, pos, player, tunnels):
+def _set_object(world, pos, player_pos, tunnels):
     x, y = pos
     uniform = world.random.uniform
-    dist = np.sqrt((x - player.pos[0]) ** 2 + (y - player.pos[1]) ** 2)
+    dist = np.sqrt((x - player_pos[0]) ** 2 + (y - player_pos[1]) ** 2)
     material, _ = world[x, y]
     if material not in constants.walkable:
         pass

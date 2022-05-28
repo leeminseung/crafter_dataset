@@ -94,22 +94,32 @@ class Env(BaseClass):
         return constants.actions
 
     def reset(self):
-        # TODO: random init agent health state, random init time, figure out why not spawning in the middle of stones
         random_init_task = ["collect_stone", "collect_coal", "collect_iron", "collect_diamond", "make_wood_pickaxe", "make_stone_pickaxe", "make_iron_pickaxe"]
         center = (self._world.area[0] // 2, self._world.area[1] // 2)
-        if self._subtask in random_init_task:
-            init_pos = (np.random.randint(self._world.area[0]), np.random.randint(self._world.area[1]))
-        else:
-            init_pos = center
+        # if self._subtask in random_init_task:
+        #     init_pos = (np.random.randint(self._world.area[0]), np.random.randint(self._world.area[1]))
+        # else:
+        #     init_pos = center
 
         self._episode += 1
         self._step = 0
         self._world.reset(seed=hash((self._seed, self._episode)) % (2 ** 31 - 1))
         self._update_time()
-        self._player = objects.Player(self._world, init_pos)
+        self._unlocked = set()
+
+        # hard coded for level-1
+        worldgen.generate_world(self._world, self._player, center)
+        
+        self._player = objects.Player(self._world, center)
+        if self._subtask in random_init_task:
+            while True:
+                reset_pos = np.array((np.random.randint(self._world.area[0]), np.random.randint(self._world.area[1])))
+                if self._player.is_free(reset_pos):
+                    self._player.pos = reset_pos
+                    break
+
         self._last_health = self._player.health
         self._world.add(self._player)
-        self._unlocked = set()
 
         if self._subtask == "collect_coal":
             self._player.inventory['wood_pickaxe'] = 1
@@ -143,7 +153,7 @@ class Env(BaseClass):
             self._player.inventory['iron'] = np.random.randint(1, 5)
 
         self._last_inventory = self._player.inventory.copy()
-        worldgen.generate_world(self._world, self._player)
+
 
         # info = {
         #     "inventory": self._player.inventory.copy(),
@@ -158,7 +168,7 @@ class Env(BaseClass):
 
     def step(self, action):
         self._step += 1
-        self._update_time()
+        # self._update_time()
         self._player.action = constants.actions[action]
         for obj in self._world.objects:
             if self._player.distance(obj) < 2 * max(self._view):
