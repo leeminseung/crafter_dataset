@@ -34,6 +34,8 @@ class Env(BaseClass):
         length=10000,
         seed=None,
         subtask=None,
+        expl_mode=False,
+        beta=0.1
     ):
         view = np.array(view if hasattr(view, "__len__") else (view, view))
         size = np.array(size if hasattr(size, "__len__") else (size, size))
@@ -80,10 +82,17 @@ class Env(BaseClass):
         # Some libraries expect these attributes to be set.
         self.reward_range = None
         self.metadata = None
+        self.expl_mode = expl_mode
+        self._beta = beta
+
 
     @property
     def observation_space(self):
-        return BoxSpace(0, 255, tuple(self._size) + (3,), np.uint8)
+        if self.expl_mode:
+            return BoxSpace(0, 255, tuple(self._size) + (5,), np.uint8)
+        else:
+            return BoxSpace(0, 255, tuple(self._size) + (3,), np.uint8)
+
 
     @property
     def action_space(self):
@@ -94,6 +103,9 @@ class Env(BaseClass):
         return constants.actions
 
     def reset(self):
+        self._visit_map = np.zeros(list(self._size) + [1])
+        self._location_map = np.zeros(list(self._size) + [1])
+
         random_init_task = ["collect_stone", "collect_coal", "collect_iron", "collect_diamond", "make_wood_pickaxe", "make_stone_pickaxe", "make_iron_pickaxe"]
         center = (self._world.area[0] // 2, self._world.area[1] // 2)
         # if self._subtask in random_init_task:
@@ -163,9 +175,13 @@ class Env(BaseClass):
         #     "player_pos": self._player.pos,
         #     "reward": 0,
         # }
-        return self._obs()
-        # return self._obs(), info
-
+        self._location_map[self._player.pos[0], self._player.pos[1]] = 1
+        self._prev_loc = self._player.pos
+        if self.expl_mode:
+            return np.concatenate((self._obs(), self._visit_map, self._location_map), axis=-1)
+        else:
+            return self._obs()
+        
     def step(self, action):
         self._step += 1
         # self._update_time()
@@ -248,6 +264,15 @@ class Env(BaseClass):
         }
         if not self._reward:
             reward = 0.0
+
+        self._visit_map[self._player.pos[0], self._player.pos[1]] += 1
+        self._location_map[self._prev_loc[0], self._prev_loc[1]] = 0
+        self._location_map[self._player.pos[0], self._player.pos[1]] = 1
+        self._prev_loc = self._player.pos
+
+        if self.expl_mode:
+            obs = np.concatenate((obs, self._visit_map, self._location_map), axis=-1)
+            reward += float(self._beta * 1/np.sqrt(self._visit_map[self._player.pos[0], self._player.pos[1]]))
         return obs, reward, done, info
 
     def render(self, size=None):
@@ -260,6 +285,7 @@ class Env(BaseClass):
         border = (size - (size // self._view) * self._view) // 2
         (x, y), (w, h) = border, view.shape[:2]
         canvas[x : x + w, y : y + h] = view
+
         return canvas.transpose((1, 0, 2))
 
     def _obs(self):

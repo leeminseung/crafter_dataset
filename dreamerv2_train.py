@@ -3,7 +3,7 @@ import dreamerv2.api as dv2
 import crafter
 
 config = dv2.defaults.update({
-    'logdir': '/home/mslee/crafter_dataset/logdir/collect_coal_dreamerv2',
+    'logdir': '/home/mslee/crafter_dataset/logdir/collect_wood_dreamerv2',
     'log_every': 1e3,
     'train_every': 10,
     'prefill': 1e5,
@@ -19,7 +19,7 @@ env = crafter.Env(
     view=(9, 9),
     length=1000,
     seed=None,
-    subtask="collect_coal"
+    subtask="collect_wood"
 )
 
 dv2.train(env, config)
