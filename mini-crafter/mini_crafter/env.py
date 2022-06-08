@@ -72,7 +72,8 @@ class Env(BaseClass):
         self._local_view = engine.LocalView(
             self._world, self._textures, [view[0], view[1] - item_rows]
         )
-        self._global_view = engine.GlobalView(
+        if mdp == "full":
+            self._global_view = engine.GlobalView(
             self._world, self._textures, [view[0], view[1] - item_rows]
         )
         self._item_view = engine.ItemView(self._textures, [view[0], item_rows])
@@ -255,7 +256,7 @@ class Env(BaseClass):
         elif self._subtask == "collect_coal":
             if self._player.inventory['coal'] - self._last_inventory['coal'] > 0:
                 reward += 1.0
-                
+
         elif self._subtask == "collect_iron":
             if self._player.inventory['iron'] - self._last_inventory['iron'] > 0:
                 reward += 1.0
