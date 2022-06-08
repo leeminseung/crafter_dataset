@@ -35,11 +35,17 @@ class Env(BaseClass):
         seed=None,
         subtask=None,
         expl_mode=False,
+        expl_method=None,
         beta=0.1
     ):
         view = np.array(view if hasattr(view, "__len__") else (view, view))
         size = np.array(size if hasattr(size, "__len__") else (size, size))
         seed = np.random.randint(0, 2 ** 31 - 1) if seed is None else seed
+        if expl_method:
+            assert expl_mode, "Specifying exploration method is only allowed when explr_mode is True"
+            assert expl_method in ["binary_discovery", "count_based"]
+        if subtask:
+            assert subtask in ["exploration", "collect_stone", "collect_coal", "collect_iron", "collect_diamond", "make_wood_pickaxe", "make_stone_pickaxe", "make_iron_pickaxe"], "not supported subtask."
         assert level in [1, 2, 3, 4], "only support level in [1, 2, 3, 4]."
         """
         level:
@@ -83,16 +89,16 @@ class Env(BaseClass):
         self.reward_range = None
         self.metadata = None
         self.expl_mode = expl_mode
+        self._expl_method = expl_method
         self._beta = beta
 
 
     @property
     def observation_space(self):
-        if self.expl_mode:
+        if self.expl_mode or self._subtask == "exploration":
             return BoxSpace(0, 255, tuple(self._size) + (5,), np.uint8)
         else:
             return BoxSpace(0, 255, tuple(self._size) + (3,), np.uint8)
-
 
     @property
     def action_space(self):
@@ -103,10 +109,13 @@ class Env(BaseClass):
         return constants.actions
 
     def reset(self):
-        self._visit_map = np.zeros(list(self._size) + [1])
-        self._location_map = np.zeros(list(self._size) + [1])
+        if self._expl_method == "binary_discovery":
+            self._visit_map = np.ones(list(self._size) + [1], dtype=np.uint8)
+        elif self._expl_method == "count_based": # count based intrisic exploration
+            self._visit_map = np.zeros(list(self._size) + [1], dtype=np.uint8)
+        self._location_map = np.zeros(list(self._size) + [1], dtype=np.uint8)
 
-        random_init_task = ["collect_stone", "collect_coal", "collect_iron", "collect_diamond", "make_wood_pickaxe", "make_stone_pickaxe", "make_iron_pickaxe"]
+        random_init_task = ["exploration", "collect_stone", "collect_coal", "collect_iron", "collect_diamond", "make_wood_pickaxe", "make_stone_pickaxe", "make_iron_pickaxe"]
         center = (self._world.area[0] // 2, self._world.area[1] // 2)
         # if self._subtask in random_init_task:
         #     init_pos = (np.random.randint(self._world.area[0]), np.random.randint(self._world.area[1]))
@@ -163,19 +172,27 @@ class Env(BaseClass):
             self._player.inventory['stone'] = np.random.randint(4, 10)
             self._player.inventory['coal'] = np.random.randint(1, 8)
             self._player.inventory['iron'] = np.random.randint(1, 5)
+        
+        elif self._subtask == "exploration":
+            self._player.inventory['wood_pickaxe'] = 1
+            self._player.inventory['stone_pickaxe'] = 1
+            self._player.inventory['iron_pickaxe'] = 1
+            self._player.inventory['stone'] = 10
 
         self._last_inventory = self._player.inventory.copy()
 
+        mask_left_boundary = max(self._player.pos[0] - 3, 0)
+        mask_right_boundary = min(self._player.pos[0] + 3, 63)
+        mask_top_boundary = max(self._player.pos[1] - 4, 0)
+        mask_bottom_boundary = min(self._player.pos[1] + 4, 63)
 
-        # info = {
-        #     "inventory": self._player.inventory.copy(),
-        #     "achievements": self._player.achievements.copy(),
-        #     "discount": 1,
-        #     "semantic": self._sem_view(),
-        #     "player_pos": self._player.pos,
-        #     "reward": 0,
-        # }
-        self._location_map[self._player.pos[0], self._player.pos[1]] = 1
+        if self._expl_method == "binary_discovery":
+            self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary] = 0
+        elif self._expl_method == "count_based": # count based intrisic exploration
+            # self._visit_map[self._player.pos[1], self._player.pos[0]] += 1
+            self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary] += 1
+
+        self._location_map[self._player.pos[1], self._player.pos[0]] = 1
         self._prev_loc = self._player.pos
         if self.expl_mode:
             return np.concatenate((self._obs(), self._visit_map, self._location_map), axis=-1)
@@ -218,6 +235,14 @@ class Env(BaseClass):
             if self._player.inventory['coal'] - self._last_inventory['coal'] > 0:
                 reward += 1.0
 
+        elif self._subtask == "collect_iron":
+            if self._player.inventory['iron'] - self._last_inventory['iron'] > 0:
+                reward += 1.0
+        
+        elif self._subtask == "collect_diamond":
+            if self._player.inventory['diamond'] - self._last_inventory['diamond'] > 0:
+                reward += 1.0
+
         elif self._subtask == "make_wood_pickaxe":
             if self._player.inventory['wood_pickaxe'] - self._last_inventory['wood_pickaxe'] > 0:
                 reward += 1.0
@@ -229,6 +254,9 @@ class Env(BaseClass):
         elif self._subtask == "make_iron_pickaxe":
             if self._player.inventory['iron_pickaxe'] - self._last_inventory['iron_pickaxe'] > 0:
                 reward += 1.0
+        
+        elif self._subtask == "exploration":
+            pass
 
         elif unlocked:
             self._unlocked |= unlocked
@@ -265,14 +293,30 @@ class Env(BaseClass):
         if not self._reward:
             reward = 0.0
 
-        self._visit_map[self._player.pos[0], self._player.pos[1]] += 1
-        self._location_map[self._prev_loc[0], self._prev_loc[1]] = 0
-        self._location_map[self._player.pos[0], self._player.pos[1]] = 1
+        mask_left_boundary = max(self._player.pos[0] - 3, 0)
+        mask_right_boundary = min(self._player.pos[0] + 3, 63)
+        mask_top_boundary = max(self._player.pos[1] - 4, 0)
+        mask_bottom_boundary = min(self._player.pos[1] + 4, 63)
+        
+        self._location_map[self._prev_loc[1], self._prev_loc[0]] = 0
+        self._location_map[self._player.pos[1], self._player.pos[0]] = 1
         self._prev_loc = self._player.pos
 
-        if self.expl_mode:
+        if self.expl_mode or self._subtask == "exploration":
+            if self._expl_method == "binary_discovery":
+                reward += self._beta * np.sum(self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary])
+                self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary] = 0
+                
+            elif self._expl_method == "count_based":
+                self._visit_map[self._player.pos[1], self._player.pos[0]] += 1
+                reward += self._beta * 1/self._visit_map[self._player.pos[1], self._player.pos[0]]
+
+                # self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary] += 1
+                # reward += self._beta * 1/np.mean(self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary])
+                # reward += self._beta * 1/np.sqrt(self._visit_map[self._player.pos[1], self._player.pos[0]])
+                # reward += self._beta * 1/np.square(np.mean(self._visit_map[mask_top_boundary:mask_bottom_boundary, mask_left_boundary:mask_right_boundary]))
             obs = np.concatenate((obs, self._visit_map, self._location_map), axis=-1)
-            reward += float(self._beta * 1/np.sqrt(self._visit_map[self._player.pos[0], self._player.pos[1]]))
+        
         return obs, reward, done, info
 
     def render(self, size=None):
@@ -285,7 +329,6 @@ class Env(BaseClass):
         border = (size - (size // self._view) * self._view) // 2
         (x, y), (w, h) = border, view.shape[:2]
         canvas[x : x + w, y : y + h] = view
-
         return canvas.transpose((1, 0, 2))
 
     def _obs(self):
@@ -374,4 +417,3 @@ class Env(BaseClass):
             away = self._player.distance(obj.pos) >= despan_dist
             if away:
                 self._world.remove(obj)
-
