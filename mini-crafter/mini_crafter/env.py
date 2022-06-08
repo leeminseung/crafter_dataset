@@ -255,6 +255,14 @@ class Env(BaseClass):
         elif self._subtask == "collect_coal":
             if self._player.inventory['coal'] - self._last_inventory['coal'] > 0:
                 reward += 1.0
+                
+        elif self._subtask == "collect_iron":
+            if self._player.inventory['iron'] - self._last_inventory['iron'] > 0:
+                reward += 1.0
+        
+        elif self._subtask == "collect_diamond":
+            if self._player.inventory['diamond'] - self._last_inventory['diamond'] > 0:
+                reward += 1.0
 
         elif self._subtask == "make_wood_pickaxe":
             if self._player.inventory['wood_pickaxe'] - self._last_inventory['wood_pickaxe'] > 0:
